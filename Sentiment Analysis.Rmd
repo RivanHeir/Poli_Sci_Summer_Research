@@ -6,7 +6,6 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-library(stringr)
 library(rmarkdown)
 library(knitr)
 library(readtext)
@@ -14,7 +13,6 @@ library(tidyverse)
 library(lubridate)
 library(data.table)
 library(rvest)
-library(readr)
 library(tidytext)
 ```
 

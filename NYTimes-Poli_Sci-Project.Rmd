@@ -1,0 +1,251 @@
+---
+title: "NYTimes"
+author: "Matthew Blake"
+date: "8/15/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(readtext)
+library(lubridate)
+library(pdftools)
+library(rvest)
+library(data.table)
+library(tidytext)
+library(rmarkdown)
+library(knitr)
+library(readr)
+```
+
+
+The NYT dataset is in two parts: the "New" section (covering Jan 2022 to present [Aug 2023]), and the section compiled by Colin Harris, which extends back to
+
+```{r}
+
+#This defines the function to convert the PDFs to CSVs. The main_folder definition is only necessary for the initial loading. 
+
+main_folder <- "~/Poli Sci Research/NYTimes"
+
+Convert_to_CSV <- function(main_folder, new_folder, folder_max, folders_name) {
+  numbers <- seq(0, folder_max, by = 100)
+  folder_names <- paste0(folders_name, numbers, "s")
+  for (folder_name in folder_names) {
+    folder_path <- file.path(main_folder, folder_name)
+    csv_output_folder <- file.path(main_folder, new_folder, folder_name)
+    dir.create(csv_output_folder, showWarnings = FALSE, recursive = TRUE)
+    pdf_files <- list.files(folder_path, pattern = "\\.pdf$", full.names = TRUE)
+    for (pdf_file in pdf_files) {
+      pdf_text <- pdf_text(pdf_file)
+      csv_data <- data.frame(Text = pdf_text)  
+      csv_file_name <- gsub("\\.pdf$", ".csv", basename(pdf_file))
+      csv_file_path <- file.path(csv_output_folder, csv_file_name)
+      write.csv(csv_data, file = csv_file_path, row.names = FALSE)
+    }
+  }
+}
+
+```
+
+```{r}
+#This chunk applies the Convert command to the three categories of new NYT PDFs. This creates new folders with the CSVs
+
+Convert_to_CSV("~/Poli Sci Research/NYTimes", "NewNYT_CSV", 1000, "NewNYTMoral")
+Convert_to_CSV("~/Poli Sci Research/NYTimes", "NewNYT_CSV", 0, "NYT_Health")
+Convert_to_CSV("~/Poli Sci Research/NYTimes", "NewNYT_CSV", 0, "NYT_Taxes")
+
+```
+
+```{r}
+#This code defines the command to turn the CSV documents into a single dataframe. As above, the base_folder setting at the beginning is only necessary the first time. 
+
+base_folder <- "~/Poli Sci Research/APTaxes/CSV-TaxesAP"
+
+
+Make_Dataframe <-function(base_folder, folder_max, folder_name) {
+all_csv_contents <- character(0)
+
+for (folder_num in seq(0, folder_max, by = 100)) {
+  subfolder_name <- paste0(folder_name, folder_num, "s")
+  subfolder_path <- file.path(base_folder, subfolder_name)
+  
+  csv_files <- list.files(subfolder_path, pattern = "\\.csv$", full.names = TRUE)
+  
+  for (csv_file in csv_files) {
+    csv_content <- read_file(csv_file)
+    all_csv_contents <- c(all_csv_contents, csv_content)
+  }
+}
+folder_name <- data.frame(CSV_Content = all_csv_contents)
+
+return(folder_name)
+
+}
+```
+
+```{r}
+#This code performs the dataframe command defined above on the three categories of new NYT, and then reads in the first three columns (the only columns we need) of Colin's data, saved in three parts for memory / storage purposes. 
+NewNYTM <-Make_Dataframe("~/Poli Sci Research/NYTimes/NewNYT_CSV", 1000, "NewNYTMoral")
+NewNYTH <-Make_Dataframe("~/Poli Sci Research/NYTimes/NewNYT_CSV", 0, "NYT_Health")
+NewNYTT <-Make_Dataframe("~/Poli Sci Research/NYTimes/NewNYT_CSV", 0, "NYT_Taxes")
+
+MedNYT1 <- read_csv("~/Poli Sci Research/NYTimes/NYT_17_21_0s/nyt_firstbatch.csv") %>% dplyr::select(1:3)
+MedNYT2 <- read_csv("~/Poli Sci Research/NYTimes/NYT_17_21_0s/nyt_secondbatch.csv") %>% dplyr::select(1:3)
+MedNYT3 <- read_csv("~/Poli Sci Research/NYTimes/NYT_17_21_0s/nyt_thirdbatch.csv") %>% dplyr::select(1:3)
+```
+
+
+```{r}
+#Another command is defined here, which cleans each of the dataframes by correcting the many problems created in the conversion from PDF to CSV. 
+NewNYT_Wrangle <- function(Dataset) {
+  Dataset %>%
+    mutate(CSV_Content = str_replace_all(CSV_Content, "\n",""),
+    title = str_sub(CSV_Content, 1, str_locate(CSV_Content, "The New York Times")[, 1] - 1),
+    title = str_replace(title, "^.{8}",""),
+    date = str_extract(CSV_Content, "(?<=Times ).*?(?= (?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday))")) %>%
+  filter(!is.na(date)) %>%
+ mutate(date = mdy(date),
+        date = floor_date(date, unit = "month")) %>%
+  dplyr::select(title, date1 = date, body = CSV_Content) %>%
+  filter(!is.na(title)) %>%
+  mutate(body = sub(".*?The New York Times", "", body),
+         body = sub(".*?Body", "", body),
+        body= str_replace(body, "\"\"", ""), 
+        body= str_replace_all(body, "Page \\d+ of \\d+", ""),
+        body= str_replace_all(body, "\"?[tT]ext\"?", ""),
+        body = sub("https://www\\.nytimes\\.com.*", "", body),
+        date = format(date1, "%Y-%m"),
+        date = ym(date)) %>% 
+  dplyr::select(-"date1")
+}
+```
+
+```{r}
+#The three new datasets were updated with the above command
+N_NYT_M <-NewNYT_Wrangle(NewNYTM)
+N_NYT_T <-NewNYT_Wrangle(NewNYTT)
+N_NYT_H <-NewNYT_Wrangle(NewNYTH)
+
+
+```
+
+
+
+```{r}
+#This is the composite dataframe of Colin's data (the older articles)
+MedNYT <- bind_rows(MedNYT1, MedNYT2, MedNYT3)
+```
+
+
+```{r}
+#The older data (Colin's dataset) is manually filtered into the same three categories as above, by the keywords Chris chose. Some final cleaning is performed to make the dataframes all in the same style. 
+MNYT_M <-MedNYT %>%
+  filter(str_detect(title, "[Aa]bortion|[Pp]ro-life|[Pp]ro-choice|[Gg]ay|[Hh]omosexual|[Ll]esbian")) %>%
+  bind_rows(NewNYTM) %>%
+  arrange(desc(publish_date)) %>%
+    dplyr::select(date = publish_date, title, body = paragraphs) %>%
+    filter(!str_detect(date, "[[:alpha:]]")) %>%
+    mutate(date = mdy(date),
+           date= floor_date(date, unit = "month"))
+
+MNYT_H <-MedNYT %>%
+  filter(str_detect(title, "[Mm]edicare|[Mm]edicaid")) %>%
+  bind_rows(NewNYTH)  %>%
+    dplyr::select(date = publish_date, title, body = paragraphs) %>%
+    filter(!str_detect(date, "[[:alpha:]]")) %>%
+    mutate(date = mdy(date),
+           date= floor_date(date, unit = "month"))
+
+MNYT_T <-MedNYT %>%
+  filter(str_detect(title, "[Tt]axes")) %>%
+  bind_rows(NewNYTT)  %>%
+    dplyr::select(date = publish_date, title, body = paragraphs) %>%
+    filter(!str_detect(date, "[[:alpha:]]")) %>%
+    mutate(date = mdy(date),
+           date= floor_date(date, unit = "month"))
+```
+
+```{r}
+#Because the distinction in data source is irrelevant, we combined the Colin and new data for each of the three categories. These will be what is analyzed. 
+#I don't know why I used equals signs instead of arrows, but it appears to work. 
+NYT_M = full_join(MNYT_M, N_NYT_M)
+NYT_T = full_join(MNYT_T, N_NYT_T)
+NYT_H = full_join(MNYT_H, N_NYT_H)
+```
+
+```{r}
+#Another test chunk.
+NYT_T
+```
+
+
+```{r}
+#This function summarizes the number of articles in each month. Summary tibbles are created for each of the three categories. 
+NYTDateSum <- function(tibble) {
+  tibble_name <- deparse(substitute(tibble))
+   tibble %>%
+    group_by(date) %>%
+    summarise(!!tibble_name := n())
+}
+
+
+
+NYT_MM <-NYTDateSum(NYT_M)
+NYT_TT <-NYTDateSum(NYT_T)
+NYT_HH <-NYTDateSum(NYT_H)
+```
+
+
+```{r}
+#The three summary tibbles are joined by month, replacing NAs with 0 (signifying no articles were found in that category for that month)
+#This chart is a deliverable. 
+
+NYT_Dataset_Counts <- left_join(left_join(NYT_MM,NYT_TT),NYT_HH) %>%
+ mutate_if(is.numeric, ~replace(., is.na(.), 0)) %>%
+filter(year(date) > 2017) %>%
+  rename(NYT_Moral = "NYT_M", NYT_Taxes = "NYT_T", NYT_Health = "NYT_H")
+NYT_Dataset_Counts
+```
+
+```{r}
+#Another test chunk
+NYT_MM
+```
+
+
+```{r}
+#This is a plot of the NYT articles by month. 
+NYT_Article_Counts_Plot <-ggplot(NYT_Dataset, aes(x = date)) +
+  geom_line(aes(y = NYT_M, color = "Moral Articles")) +
+  geom_line(aes(y = NYT_T, color = "Taxes Articles")) +
+  geom_line(aes(y = NYT_H, color = "Health Articles")) +
+  labs(title = "Associated Press Article Counts over Time", x = "Months", y = "Count") +
+  scale_color_manual(
+    breaks = c("Moral Articles", "Taxes Articles", "Health Articles"),
+    values = c("Moral Articles" = "red", "Taxes Articles" = "blue", "Health Articles" = "green"),
+    labels = c("Moral Articles", "Taxes Articles", "Health Articles")
+  ) +
+  theme_minimal()
+
+NYT_Article_Counts_Plot
+```
+
+
+
+This is vestigial code. It is no longer necessary or useful. 
+ ```{r}
+
+Filtered_Colin_NYT <- read_csv("~/Poli Sci Research/NYTimes/nyt_2017_2021.csv", col_types = cols(paragraphs = col_character(), publish_date = col_datetime(), title = col_character()), n_max = 10000) %>%
+filter(str_detect("title", "[Aa]bortion|[Pp]ro-life|[Pp]ro-choice|[Gg]ay|[Ll]esbian|[Hh]omosexual|[Tt]axes|[Mm]edicare|[Mm]edicaid"))
+ ```
+
+
+
+ ```{r}
+ColinNYT <- filtered_dt %>%
+  mutate(publish_date = str_extract(publish_date, "^.{6}"),
+         publish_date = paste(substr(publish_date, 1, 4), "-", substr(publish_date, 5, 6), sep = ""),
+         publish_date = ym(publish_date))
+
+ColinNYT
+ ```

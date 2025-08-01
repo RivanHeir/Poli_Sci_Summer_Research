@@ -1,0 +1,228 @@
+---
+title: "Sentiment Analysis"
+author: "Matthew Blake"
+date: "8/13/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(stringr)
+library(rmarkdown)
+library(knitr)
+library(readtext)
+library(tidyverse)
+library(lubridate)
+library(data.table)
+library(rvest)
+library(readr)
+library(tidytext)
+```
+
+#THIS IS THE RESULTS DOCUMENT. RUN THIS DOCUMENT AFTER THE NYTIMES, AP, AND WAPO RMD FILES
+
+This chart combines the monthly counts from the previous three documents. 
+```{r}
+All_Count_Data = left_join(left_join(NYT_Dataset_Counts, AP_Dataset_Counts), WP_Article_Counts) %>%
+  write_csv("Article_Counts_2018_2023.csv") %>%
+  print()
+```
+
+
+These loads in the lexicons we will use:
+```{r}
+anger_file<- "~/Poli Sci Research/anger-NRC-Emotion-Lexicon.txt"
+disgust_file<- "~/Poli Sci Research/disgust-NRC-Emotion-Lexicon.txt"
+anger_data <- read.table(anger_file, header = FALSE, sep = "\t", quote = "", comment.char = "", stringsAsFactors = FALSE)
+disgust_data <- read.table(disgust_file, header = FALSE, sep = "\t", quote = "", comment.char = "", stringsAsFactors = FALSE)
+
+NRC_Words <-inner_join(anger_data, disgust_data, by = "V1") %>%
+  filter(V2.x + V2.y >= 1) %>%
+  dplyr::select(Word = V1, Anger = V2.x, Disgust = V2.y) %>%
+  arrange(Word)
+```
+
+This gives us the dictionaries we will use for the emotions Anger and Disgust.
+```{r}
+Anger <-NRC_Words %>% filter(Anger == 1) %>% dplyr::select(Word)
+Disgust <-NRC_Words %>%filter(Disgust == 1) %>% dplyr::select(Word)
+```
+
+This code compiles the data sources, and filters out non-ascii characters. Also created written backup copies. 
+```{r}
+Moral <-rbind(APM_Data, WP_All_Text_M, NYT_M) %>%
+  mutate(body = str_replace_all(body, "[^\\p{ASCII}]", ""),
+         title = str_replace_all(title, "[^\\p{ASCII}]", ""))
+
+write.csv(Moral, "Moral_Articles.csv")
+
+Health <-rbind(APH_Data, WP_All_Text_H, NYT_H) %>% mutate(body = str_replace_all(body, "[^\\p{ASCII}]", ""),
+         title = str_replace_all(title, "[^\\p{ASCII}]", ""))
+
+  write.csv(Health, "Health_Articles.csv")
+
+Taxes <-rbind(APT_Data, WP_All_Text_T, NYT_T) %>%
+  mutate(body = str_replace_all(body, "[^\\p{ASCII}]", ""),
+         title = str_replace_all(title, "[^\\p{ASCII}]", ""))
+
+  write.csv(Taxes, "Taxes_Articles.csv")
+```
+
+
+Count emotion words will count the number of times any word in the given dictionary is found within each text. 
+Analyse Emotion will create a new column which counts up the number of words which are on the list for a given emotion, and will calculate the proportion of words in each text body that are in the emotion database. 
+
+```{r}
+count_emotion_words <- function(text, words) {
+  word_counts <- str_count(words, paste0("\\b", text, "\\b", collapse = "|"))
+  return(sum(word_counts))
+}
+
+Analyse_Emotion <- function(emotion, data) {
+  data <- data %>%
+    mutate(
+      matches = count_emotion_words(body, emotion),  # Swap text and words arguments
+      word_count = str_count(body, "\\b\\w+\\b"),
+      prop = matches / word_count
+    )
+  
+  return(data)
+}
+```
+
+Probably superfluous code here
+```{r}
+
+count_emotion_words <- function(text, emotion) {
+  text %>%
+    unnest_tokens(word, text) %>%
+    filter(word %in% emotion) %>%
+    summarise(matches = n()) %>%
+    pull(matches) %>%
+    sum()
+}
+
+Analyse_Emotion2 <- function(emotion, data) {
+  data %>%
+    mutate(
+      matches = map_int(body, ~ count_emotion_words(.x, emotion)),
+      word_count = str_count(body, "\\b\\w+\\b"),
+      prop = matches / word_count
+    )
+}
+```
+
+
+This is the big one: The functions above apply to all of the text. This can take 10-15 minutes to run. 
+```{r}
+for (i in 1:nrow(Health)) {
+  anger_words <- str_extract_all(tolower(Health$body[i]), paste0("\\b", Anger$Word, "\\b"))
+  Health$Anger_Word_Count[i] <- sum(lengths(anger_words))
+}
+
+for (i in 1:nrow(Taxes)) {
+  anger_words <- str_extract_all(tolower(Taxes$body[i]), paste0("\\b", Anger$Word, "\\b"))
+  Taxes$Anger_Word_Count[i] <- sum(lengths(anger_words))
+}
+
+for (i in 1:nrow(Moral)) {
+  anger_words <- str_extract_all(tolower(Moral$body[i]), paste0("\\b", Anger$Word, "\\b"))
+  Moral$Anger_Word_Count[i] <- sum(lengths(anger_words))
+}
+
+for (i in 1:nrow(Health)) {
+  disgust_words <- str_extract_all(tolower(Health$body[i]), paste0("\\b", Disgust$Word, "\\b"))
+  Health$Disgust_Word_Count[i] <- sum(lengths(disgust_words))
+}
+
+for (i in 1:nrow(Taxes)) {
+  disgust_words <- str_extract_all(tolower(Taxes$body[i]), paste0("\\b", Disgust$Word, "\\b"))
+  Taxes$Disgust_Word_Count[i] <- sum(lengths(disgust_words))
+}
+
+for (i in 1:nrow(Moral)) {
+  disgust_words <- str_extract_all(tolower(Moral$body[i]), paste0("\\b", Disgust$Word, "\\b"))
+  Moral$Disgust_Word_Count[i] <- sum(lengths(disgust_words))
+}
+
+
+```
+
+
+
+```{r}
+HD_Sum <- Health %>%
+  summarise(Disgust_Rate = sum(Disgust_Word_Count))
+
+HA_Sum<- Health %>%
+  summarise(Anger_Rate = sum(Anger_Word_Count))
+
+TD_Sum <- Taxes %>%
+  summarise(Disgust_Rate = sum(Disgust_Word_Count))
+
+TA_Sum<- Taxes %>%
+  summarise(Anger_Rate = sum(Anger_Word_Count))
+
+MD_Sum <- Moral %>%
+  summarise(Disgust_Rate = sum(Disgust_Word_Count))
+
+MA_Sum<- Moral %>%
+  summarise(Anger_Rate = sum(Anger_Word_Count))
+
+```
+
+```{r}
+HealthSum <- Health %>%
+  mutate(word_count = str_count(body, "\\b\\w+\\b")) %>%
+  summarise(Health_words_count = sum(word_count, na.rm = TRUE))
+
+TaxesSum <- Taxes %>%
+  mutate(word_count = str_count(body, "\\b\\w+\\b")) %>%
+  summarise(Taxes_words_count = sum(word_count, na.rm = TRUE))
+
+MoralSum <- Moral %>%
+  mutate(word_count = str_count(body, "\\b\\w+\\b")) %>%
+  summarise(Moral_words_count = sum(word_count, na.rm = TRUE))
+```
+
+```{r}
+Moral_Row <- c(MD_Sum, MA_Sum, MoralSum, MD_Sum / MoralSum, MA_Sum / MoralSum, nrow(Moral))
+Taxes_Row <- c(TD_Sum, TA_Sum, TaxesSum, TD_Sum / TaxesSum, TA_Sum / TaxesSum, nrow (Taxes))
+Health_Row <- c(HD_Sum, HA_Sum, HealthSum, HD_Sum / HealthSum, HA_Sum / HealthSum, nrow(Health))
+
+Emotion_df <- rbind(Moral_Row, Taxes_Row, Health_Row)
+  colnames(Emotion_df) = c("Disgust_Count", "Anger_Count", "Word_Total", "Disgust_Rate", "Anger_Rate", "Article_Count")
+
+print(Emotion_df)
+
+write.csv(Emotion_df, "Sentiment_Analysis.csv", row.names = TRUE)
+
+```
+
+```{r}
+MoralCSV
+```
+
+```{r}
+Proportionize<- function(data) {
+  data <- data %>%
+    mutate(word_count = str_count(body, "\\b\\w+\\b"),
+           anger_prop = Anger_Word_Count / word_count,
+           disgust_prop = Disgust_Word_Count / word_count) %>%
+    select(-X)
+}
+
+Moral <- Proportionize(Moral)
+Taxes <- Proportionize(Taxes)
+Health <- Proportionize(Health)
+```
+
+
+Results Backup
+```{r}
+Health_SentResults <-read.csv("~/Poli Sci Research/Results Images/Health_Articles.csv")
+Taxes_SentResults <-read.csv("~/Poli Sci Research/Results Images/Taxes_Articles.csv")
+Moral_SentResults <-read.csv("~/Poli Sci Research/Results Images/Moral_Articles.csv")
+```
+
+
+

@@ -1,0 +1,182 @@
+---
+title: "(AP) Poli Sci Project"
+author: "Matthew Blake"
+date: "8/9/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(rmarkdown)
+library(knitr)
+library(readtext)
+library(tidyverse)
+library(tm)
+library(tidytext)
+library(data.table)
+library(lubridate)
+library(pdftools)
+
+```
+
+This code creates new folders with CSV copies of the downloaded PDFs. 
+```{r}
+convert_pdfs_to_csvs <- function(main_folder, folder_prefix, numbers, output_subdir) {
+  for (number in numbers) {
+    folder_name <- paste0(folder_prefix, number, "s")
+    folder_path <- file.path(main_folder, folder_name)
+    csv_output_folder <- file.path(main_folder, output_subdir, folder_name)
+    dir.create(csv_output_folder, showWarnings = FALSE, recursive = TRUE)
+    
+    pdf_files <- list.files(folder_path, pattern = "\\.pdf$", full.names = TRUE)
+    
+    for (pdf_file in pdf_files) {
+      pdf_text <- pdf_text(pdf_file)
+      csv_data <- data.frame(Text = pdf_text)
+      
+      csv_file_name <- gsub("\\.pdf$", ".csv", basename(pdf_file))
+      csv_file_path <- file.path(csv_output_folder, csv_file_name)
+      write.csv(csv_data, file = csv_file_path, row.names = FALSE)
+    }
+  }
+}
+
+# Convert PDFs to CSVs for each category
+main_folder1 <- "~/Poli Sci Research/APMoral"
+numbers1 <- seq(0, 3300, by = 100)
+convert_pdfs_to_csvs(main_folder1, "NewAP", numbers1, "CSV-MoralAP")
+
+main_folder2 <- "~/Poli Sci Research/APHealth"
+numbers2 <- seq(0, 300, by = 100)
+convert_pdfs_to_csvs(main_folder2, "HealthAP", numbers2, "CSV-HealthAP")
+
+main_folder3 <- "~/Poli Sci Research/APTaxes"
+numbers3 <- seq(0, 1800, by = 100)
+convert_pdfs_to_csvs(main_folder3, "TaxesAP", numbers3, "CSV-TaxesAP")
+
+```
+
+This code will combine the csvs into dataframes by category. The MORAL articles for AP are called NewAP for some reason, but the code works, and I don't feel like manually fixing that naming (since MORAL is the largest category). 
+
+```{r}
+process_csv_folder <- function(base_folder, prefix, max_num) {
+  all_csv_contents <- character(0)
+  
+  for (folder_num in seq(0, max_num, by = 100)) {
+    subfolder_name <- paste0(prefix, folder_num, "s")
+    subfolder_path <- file.path(base_folder, subfolder_name)
+    
+    csv_files <- list.files(subfolder_path, pattern = "\\.csv$", full.names = TRUE)
+    
+    for (csv_file in csv_files) {
+      csv_content <- read_file(csv_file)
+      all_csv_contents <- c(all_csv_contents, csv_content)
+    }
+  }
+  
+  data.frame(CSV_Content = all_csv_contents)
+}
+
+# Process each category
+Moral_df <- process_csv_folder("~/Poli Sci Research/APMoral/CSV-MoralAP", "NewAP", 3300)
+Taxes_df <- process_csv_folder("~/Poli Sci Research/APTaxes/CSV-TaxesAP", "TaxesAP", 1800)
+Health_df <- process_csv_folder("~/Poli Sci Research/APHealth/CSV-HealthAP", "HealthAP", 300)
+
+# Display the data frames
+
+#print(Moral_df)
+#print(Taxes_df)
+#print(Health_df)
+
+```
+This function cleaned up the text files
+```{r}
+
+process_data <- function(df) {
+  df %>%
+    mutate(CSV_Content = str_replace_all(CSV_Content, "\n", ""),
+           title = str_sub(CSV_Content, 1, str_locate(CSV_Content, "The Associated Press")[, 1] - 1),
+           title = str_replace(title, "^.{8}", ""),
+           date = str_extract(CSV_Content, "(?<=Press ).*?(?= (?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday))"),
+           date = mdy(date)) %>%
+    dplyr::select(title, date, body = CSV_Content) %>%
+    mutate(body = ifelse(str_detect(body, "\\(AP\\) - "), 
+                         str_extract(body, "(?<=\\(AP\\) - ).*"), 
+                         body), 
+           body = ifelse(str_detect(body, "[\\.A-Za-z]Body"), 
+                         str_extract(body, "([\\.A-Za-z])Body.*"), 
+                         body), 
+           body = ifelse(str_detect(body, "[\\.A-Za-z]Body"), 
+                         str_replace(body, "[\\.A-Za-z]Body", ""), 
+                         body),
+           body = str_replace(body, "Load-Date.*", ""), 
+           body = str_replace_all(body, "Page \\d+ of \\d+", ""),
+           body = str_replace_all(body, "\"?[tT]ext\"?", ""),
+           date_my = format(date, "%Y-%m")) %>%
+    filter(!is.na(date_my)) %>%
+    mutate(date = floor_date(date, unit = "month")) %>%
+    dplyr::select(title, date, body)
+}
+
+
+APH_Data <- process_data(Health_df)
+print(APH_Data)
+
+APT_Data <- process_data(Taxes_df)
+print(APT_Data)
+
+APM_Data <- process_data(Moral_df)
+print(APM_Data)
+
+```
+This code assembles the counts by months
+```{r}
+Moral_Count <-APM_Data %>%
+  group_by(date) %>%
+  summarise(Moral_Articles = n())
+
+Taxes_Count <-APT_Data %>%
+  group_by(date) %>%
+  summarise(Taxes_Articles = n())
+
+  Health_Count <-APH_Data %>%
+  group_by(date) %>%
+  summarise(Health_Articles = n())
+  
+  
+  AP_Article_Counts <- Moral_Count %>%
+    left_join(Taxes_Count, by  = "date") %>%
+    left_join(Health_Count, by = "date") %>%
+     mutate(Health_Articles = ifelse(is.na(Health_Articles), 0, Health_Articles))
+```
+
+This saves the plot as a png
+```{r}
+AP_Article_Counts_Plot <-ggplot(AP_Article_Counts, aes(x = date)) +
+  geom_line(aes(y = Moral_Articles, color = "Moral Articles")) +
+  geom_line(aes(y = Taxes_Articles, color = "Taxes Articles")) +
+  geom_line(aes(y = Health_Articles, color = "Health Articles")) +
+  labs(title = "Associated Press Article Counts over Time", x = "Months", y = "Count") +
+  scale_color_manual(
+    breaks = c("Moral Articles", "Taxes Articles", "Health Articles"),
+    values = c("Moral Articles" = "red", "Taxes Articles" = "blue", "Health Articles" = "green"),
+    labels = c("Moral Articles", "Taxes Articles", "Health Articles")
+  ) +
+  theme_minimal()
+
+ggsave("AP Article Counts Plot.png", plot = AP_Article_Counts_Plot,  width = 6, height = 4, dpi = 500)
+  
+  
+ # write.csv(Article_Counts, "New Article Counts.csv", row.names = FALSE)
+```
+
+This shows the plot saved above
+```{r}
+AP_Article_Counts_Plot
+```
+This gives a table of the article counts per month, by category. This is the deliverable. 
+```{r}
+AP_Dataset_Counts <- AP_Article_Counts %>%
+  dplyr::select(date, AP_Moral = "Moral_Articles", AP_Taxes = "Taxes_Articles", AP_Health = "Health_Articles")
+
+AP_Dataset_Counts
+```

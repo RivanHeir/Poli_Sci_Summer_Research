@@ -1,0 +1,192 @@
+---
+title: "WaPo-Poli_Sci_Project"
+author: "Matthew Blake"
+date: "8/11/2023"
+output: html_document
+---
+```{r}
+library(rmarkdown)
+library(knitr)
+library(readtext)
+library(rvest)
+library(tidyverse)
+library(dplyr)
+library(tidytext)
+library(lubridate)
+library(data.table)
+
+```
+The following code comes in two parts: Colin's data (which goes through December 2021) and New WaPo, which goes from Jan 2022-August 2023 (current time). 
+
+This code reads in Colin's articles, as saved by category
+```{r}
+MColin_Wapo <- read_csv("~/Poli Sci Research/ColinWaPo/MColin_Wapo")
+TColin_Wapo <- read_csv("~/Poli Sci Research/ColinWaPo/TColin_Wapo")
+HColin_Wapo <- read_csv("~/Poli Sci Research/ColinWaPo/HColin_Wapo")
+```
+
+CWP = Colin WaPo
+This chart provides a summary of the Colin WaPo articles, though they are organized by day and not by month. 
+```{r}
+CWPH_Sum <-HColin_Wapo %>%
+  group_by(date) %>%
+summarise(Health_count = n())
+
+CWPT_Sum <-TColin_Wapo %>%
+  group_by(date) %>%
+summarise(Taxes_count = n())
+
+CWPM_Sum <-MColin_Wapo %>%
+  group_by(date)  %>%
+summarise(Moral_count = n())
+
+
+CWP_Article_Counts <- CWPM_Sum %>%
+    left_join(CWPT_Sum, by  = "date") %>%
+    left_join(CWPH_Sum, by = "date") %>%
+  mutate(Health_count = ifelse(is.na(Health_count), 0, Health_count)) %>%
+  mutate(Taxes_count = ifelse(is.na(Taxes_count), 0, Taxes_count))
+
+CWP_Article_Counts
+```
+
+This is a new command meant to wrangle the new WaPo data
+```{r}
+ReadWrangle_NewWP <- function(path){
+file_path <- path
+
+text_lines <- readLines(file_path)
+
+paragraphs <- character(0)
+
+current_paragraph <- ""
+
+for (line in text_lines) {
+  if (line == "") {
+    if (nchar(current_paragraph) > 0) {
+      paragraphs <- c(paragraphs, current_paragraph)
+      current_paragraph <- ""
+    }
+  } else {
+    current_paragraph <- paste(current_paragraph, line, sep = " ")
+  }
+}
+
+if (nchar(current_paragraph) > 0) {
+  paragraphs <- c(paragraphs, current_paragraph)
+}
+
+
+WaPo_FullText_Taxes_df <- data.frame(Paragraph = paragraphs, stringsAsFactors = FALSE)
+
+
+filtered_df <- WaPo_FullText_Taxes_df %>%
+  
+  filter(str_detect(Paragraph, "Title:|Full text:|Publication date:")) 
+
+
+if(path == "~/Poli Sci Research/WaPo Health/WapoFullText_Health2.txt") {
+  new_row <- data.frame(Paragraph = "Publication date: Jun 7, 2023")
+  filtered_df <- filtered_df %>%  
+    add_row(.before = 69, new_row)
+}
+
+if(path == "~/Poli Sci Research/WaPo Moral/WPM4.txt") {
+  new_row <- data.frame(Paragraph = "Publication date: Aug 19, 2022")
+  filtered_df <- filtered_df %>%  
+    add_row(.before = 111, new_row)
+}
+
+column1 <- filtered_df$Paragraph[c(TRUE, FALSE, FALSE)]
+column2 <- filtered_df$Paragraph[c(FALSE, TRUE, FALSE)]
+column3 <- filtered_df$Paragraph[c(FALSE, FALSE, TRUE)]
+
+
+reshaped_df <- data.frame(Full_Text = column1, Title = column2, Pub_Date = column3)
+
+
+reshaped2_df <- lapply(reshaped_df, function(column) {
+  gsub("^[^:]+:\\s+", "", column)
+})
+
+final_df <- as.data.frame(reshaped2_df) %>%
+  mutate(Pub_Date = str_replace(Pub_Date, "2 023$", "2023"),
+         date = mdy(Pub_Date),
+         date = floor_date(date, unit = "month"))  %>%
+  dplyr::select(-"Pub_Date")
+return(final_df)
+}
+```
+
+This compiles the Taxes and Health sections of New WaPo
+```{r}
+WPT_Compiled <- ReadWrangle_NewWP("~/Poli Sci Research/WaPo Taxes/WPFT_Taxes.txt")%>%
+   dplyr::select(title = Title, date, body = Full_Text)
+WaPo_FullText_Health1 <-ReadWrangle_NewWP("~/Poli Sci Research/WaPo Health/WapoFullText_Health1.txt")
+WaPo_FullText_Health2 <-ReadWrangle_NewWP("~/Poli Sci Research/WaPo Health/WapoFullText_Health2.txt")
+WPH_Compiled <- rbind(WaPo_FullText_Health1, WaPo_FullText_Health2) %>%
+   dplyr::select(title = Title, date, body = Full_Text)
+```
+
+
+This code compiles Moral New WaPo
+```{r}
+file_paths <- paste("~/Poli Sci Research/WaPo Moral/WPM", 0:12, ".txt", sep = "")
+
+# Initialize a list to store the resulting data frames
+WPM_list <- list()
+
+# Loop through the file paths and read/transform the data
+for (i in seq_along(file_paths)) {
+  WPM_name <- paste0("WPM", i)
+  WPM_df <- ReadWrangle_NewWP(file_paths[i])
+  assign(WPM_name, WPM_df)
+  WPM_list[[WPM_name]] <- WPM_df
+}
+```
+
+
+```{r}
+WPM0<- ReadWrangle_NewWP("~/Poli Sci Research/WaPo Moral/WPM0.txt")
+```
+
+
+
+```{r}
+for (num in 0:12) {
+  file_path <- paste0("~/Poli Sci Research/WaPo Moral/WPM", num, ".txt")
+  WPM_name <- paste0("WPM", num)
+  WPM_df <- ReadWrangle_NewWP(file_path)
+}
+```
+
+
+```{r}
+WPM_Compiled <-rbind(WPM0, WPM1, WPM2, WPM3, WPM4, WPM5, WPM6, WPM7, WPM8, WPM9, WPM10, WPM11, WPM12) %>%
+  dplyr::select(title = Title, date, body = Full_Text)
+```
+
+This combines the Colin and New WaPo datasets for each category
+```{r}
+WP_All_Text_M <- full_join(MColin_Wapo, WPM_Compiled) 
+WP_All_Text_T <- full_join(TColin_Wapo, WPT_Compiled)
+WP_All_Text_H <- full_join(HColin_Wapo, WPH_Compiled) %>%
+  mutate(body = str_replace_all(body, "[^\\p{ASCII}]", ""),
+         title = str_replace_all(title, "[^\\p{ASCII}]", ""))
+```
+
+
+
+This is the deliverable
+```{r}
+WPM_Count <-WP_All_Text_M %>% count(date) %>% rename(WP_Moral = n)
+WPH_Count <-WP_All_Text_H %>% count(date) %>% rename(WP_Health = n)
+WPT_Count <-WP_All_Text_T %>% count(date) %>% rename(WP_Taxes = n)
+
+WP_Article_Counts <- full_join(full_join(WPM_Count, WPH_Count), WPT_Count) %>% 
+  mutate(WP_Moral = ifelse(!is.na(WP_Moral), WP_Moral, 0),
+         WP_Health = ifelse(!is.na(WP_Health), WP_Health, 0), 
+         WP_Taxes = ifelse(!is.na(WP_Taxes), WP_Taxes, 0)) %>% 
+  filter(!is.na(date))
+  
+```

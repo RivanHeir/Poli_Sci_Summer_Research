@@ -1,7 +1,7 @@
 # Poli_Sci_Summer_Research
 
 This project is the output of the research I completed for Dr. Chris Chapp in the summer of 2023. Dr. Chapp had a manuscript which would become his book _Moral Issues
-How Public Opinion on Abortion and Gay Rights Affects American Religion and Politics_, but his election data extended only to the 2018 midterm elections. My task was to replicate these tables, with data updated from the 2020 and 2022 elections. 
+How Public Opinion on Abortion and Gay Rights Affects American Religion and Politics_ (cowritten with Paul Goren), but his election data extended only to the 2018 midterm elections. My task was to replicate these tables, with data updated from the 2020 and 2022 elections. 
 
 The first task I had was to analyze news article, categorized by keywords into one of three categories: Taxes, Health, and Moral (Abortion and LGBT). To do this, I scraped data from online archives of the New York Times, Washington Post, and Associated Press. I combined this with similar data from Colin Harris, and successfully provided updated counts to Dr. Chapp. 
 
@@ -19,11 +19,11 @@ Additionally, the NRC dictionaries _anger-NRC-Emotion-Lexicon.txt_ and _disgust-
 
 ## Packages
 
-This research was performed in the ROAR server, on RStudio. We used the packages _rmarkdown_, _knitr_, _readtext_, _tidyverse_, _lubridate_, _data.table_, _rvest_, _tidytext_, _tm_, _pdftools_
+This research was performed in the ROAR server, on RStudio. We used the packages _rmarkdown_, _knitr_, _readtext_, _tidyverse_, _lubridate_, _data.table_, _rvest_, _tidytext_, _tm_, and _pdftools_.
 
 ## AI and Reproduction
 
-© 2025 Matthew Blake. All rights reserved.
+© 2025 Matthew Blake, Christopher Chapp. All rights reserved.
 
 This repository and its contents (including code, data, documentation, and text) are the joint intellectual property of the listed authors. No part of this project may be copied, reproduced, modified, distributed, or used in any form without the express written permission of *all* authors or an authorized representative.
 

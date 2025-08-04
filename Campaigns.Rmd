@@ -1,0 +1,191 @@
+---
+title: "Campaigns"
+author: "Matthew Blake"
+date: "8/18/2023"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(purrr)
+library(stringr)
+library(readr)
+library(lubridate)
+library(tibble)
+library(tidyverse)
+```
+
+
+```{r}
+# Specify the folder path
+folder_path <- "~/Poli Sci Research/Congress Data Analysis/Campaigns_Data/2022 congressional campaigns"
+
+# List all the files in the folder
+file_list <- list.files(path = folder_path, pattern = "\\.txt$", full.names = TRUE)
+
+# Initialize an empty list to store the data frames
+data_frames <- list()
+
+# Loop through each file
+for (file_path in file_list) {
+  # Read the file line by line
+  content <- character(0)
+  con <- file(file_path, "rt", encoding = "UTF-8")
+  while (length(line <- readLines(con, n = 1, warn = FALSE)) > 0) {
+    content <- c(content, line)
+  }
+  close(con)
+  
+  # Create a data frame from the content
+  df <- data.frame(Content = content, stringsAsFactors = FALSE)
+  
+  # Store the data frame in the list
+  data_frames[[basename(file_path)]] <- df
+}
+
+# Now you have a list of data frames, each containing the content of a file
+# You can access each data frame using its name, for example:
+# data_frames$AK_01_DEM_BIO.txt
+# data_frames$AK_01_GOP_EDUCATION.txt
+# and so on...
+
+
+# ... (previous code to read files)
+
+# Convert the list of data frames into a tibble
+combined_df <- map_df(data_frames, ~ .x, .id = "File")
+
+
+# Assuming combined_df is the tibble you obtained
+grouped_df <- combined_df %>%
+  group_by(File) %>%
+  summarize(Content = paste(Content, collapse = " ")) %>%
+  ungroup() %>% 
+  print()
+
+Sep_df <- grouped_df %>%
+ 	separate(col = "File", into = c("candidate", "txt"), sep = -4) %>%
+ 	select(-(txt)) %>%
+ 	separate(col = "candidate", into = c("state", "district", "party", "issue"), sep = "_", extra = "merge", remove = FALSE) %>%
+  print() 
+```
+
+These loads in the lexicons we will use:
+```{r}
+anger_file<- "~/Poli Sci Research/anger-NRC-Emotion-Lexicon.txt"
+disgust_file<- "~/Poli Sci Research/disgust-NRC-Emotion-Lexicon.txt"
+anger_data <- read.table(anger_file, header = FALSE, sep = "\t", quote = "", comment.char = "", stringsAsFactors = FALSE)
+disgust_data <- read.table(disgust_file, header = FALSE, sep = "\t", quote = "", comment.char = "", stringsAsFactors = FALSE)
+
+NRC_Words <-inner_join(anger_data, disgust_data, by = "V1") %>%
+  filter(V2.x + V2.y >= 1) %>%
+  dplyr::select(Word = V1, Anger = V2.x, Disgust = V2.y) %>%
+  arrange(Word)
+```
+
+This gives us the dictionaries we will use for the emotions Anger and Disgust.
+```{r}
+Anger <-NRC_Words %>% filter(Anger == 1) %>% dplyr::select(Word)
+Disgust <-NRC_Words %>%filter(Disgust == 1) %>% dplyr::select(Word)
+```
+
+
+
+
+```{r}
+#list.files("~/Poli Sci Research/Congress Data Analysis/Campaigns_Data/2022 congressional campaigns")
+```
+
+```{r}
+for (file_path in file_list) {
+  file_name <- basename(file_path)
+  if (grepl("^CA_[56789]_", file_name)) {
+    new_file_name <- gsub("^CA_([56789])_", "CA_0\\1_", file_name)
+    new_file_path <- file.path(dirname(file_path), new_file_name)
+    file.rename(file_path, new_file_path)
+    cat("Renamed", file_name, "to", new_file_name, "\n")
+  }
+}
+```
+
+
+
+```{r}
+
+
+# Example moral_vector
+moral_vector <- c("abortion", "abortions", "antiabortion", "anti-abortion", "reproductive", "prochoice", "pro-choice", "pro choice", "prolife", "pro-life", "pro life", "late term", "partial birth", "right to choose", "right-to-choose", "impregnated", "womb", "infanticide", "Roe v. Wade", "Roe versus Wade", "embryo", "embryonic", "fetal tissue", "fetus", "antichoice", "Hyde amendment", "Planned Parenthood", "gay", "lesbian", "transgender", "bisexual", "homosexual", "heterosexual", "intersex", "homoerotic", "homo-erotic", "homophobe", "homophobic", "homophobia", "sodomy", "gender identity", "sexual identity", "sexual orientation", "traditional marriage", "same-sex", "same sex", "DOMA", "Defense of Marriage Act", "Marriage Amendment", "GLBT", "LGBT", "GLBTQ", "LGBTQ", "Don't Ask, Don't Tell")
+
+# Iterate over each row and calculate moral word counts
+Sep_df$Moral_Word_Count <- unlist(lapply(Sep_df$Content, function(content) {
+  moral_words <- str_extract_all(tolower(content), paste(tolower(moral_vector), collapse = "|"))
+  sum(lengths(moral_words))
+}))
+
+# Compute the number of words in each row of "Content"
+Sep_df$Word_Count <- str_count(Sep_df$Content, "\\w+")
+
+# Print the modified Sep_df
+print(Sep_df)
+
+```
+
+
+```{r}
+# Iterate over each row and calculate anger word counts
+for (i in 1:nrow(Sep_df)) {
+  anger_words <- str_extract_all(tolower(Sep_df$Content[i]), paste0("\\b", Anger$Word, "\\b"))
+  Sep_df$Anger_Word_Count[i] <- sum(lengths(anger_words))
+}
+
+# Iterate over each row and calculate disgust word counts
+for (i in 1:nrow(Sep_df)) {
+  disgust_words <- str_extract_all(tolower(Sep_df$Content[i]), paste0("\\b", Disgust$Word, "\\b"))
+  Sep_df$Disgust_Word_Count[i] <- sum(lengths(disgust_words))
+}
+```
+
+
+```{r}
+# Print the modified Sep_df
+print(Sep_df)
+
+```
+
+
+```{r}
+Campaign_df <- Sep_df %>%
+mutate(Moral_Word_Prop = Moral_Word_Count / Word_Count,
+       Anger_Word_Prop = Anger_Word_Count / Word_Count,
+       Disgust_Word_Prop = Disgust_Word_Count / Word_Count,
+       isMoral = ifelse(Moral_Word_Prop > .0025, 1, 0),
+       index = row_number()) %>%
+  select(index, Moral_Word_Count, Moral_Word_Prop,isMoral, everything()) %>%
+  write_csv("Full_Campaign_Dataframe.csv")
+```
+
+
+```{r}
+
+
+Simplified_Campaign_df <- Campaign_df %>%
+  group_by(state, district, party) %>%
+  summarize(
+            isMoral = as.integer(any(Moral_Word_Prop > 0.0025, na.rm = TRUE))) %>%
+  # Print the summarized DataFrame
+  print()
+
+
+
+
+```
+
+
+```{r}
+IsMoralProp <-Simplified_Campaign_df %>%
+  ungroup()  %>%
+  group_by(party) %>%
+  summarise(Moral_Campaign_Prop = sum(isMoral) / n()) %>%
+  print()
+```
+

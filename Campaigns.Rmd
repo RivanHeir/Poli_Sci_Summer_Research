@@ -6,12 +6,8 @@ output: html_document
 ---
 
 ```{r}
-library(dplyr)
-library(purrr)
 library(stringr)
-library(readr)
 library(lubridate)
-library(tibble)
 library(tidyverse)
 ```
 
